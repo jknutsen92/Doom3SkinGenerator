@@ -1,12 +1,14 @@
 from pathlib import Path
 from sys import exit, argv
+from re import search
 
 from entity_def import EntityDef
 from md5mesh import Md5mesh
 from material import Material
 from skin import Skin
+from game_files import EntityArchive, MaterialArchive, SkinArchive
 
-# argv[1]: File containing list of entitie names for which to create new materials and skins
+# argv[1]: File containing list of entity names for which to create new materials and skins
 # argv[2]: Path to text file containing the material content to append to the existing material copies
 # argv[3]: Path of base folder where entities/materials/skins etc live
 # argv[4]: Path of materials file to write to. Will be created or appended if exists
@@ -43,29 +45,36 @@ if __name__ == "__main__":
     material_fragment = Material.parse_material_fragment(argv[2])
 
     with open(argv[1]) as entity_list:
+        entity_archive = EntityArchive(argv[3])
         # init entities list
         entities = []
-        for line in entity_list.readlines():
-            try:
-                entity = EntityDef(line)
-                entities.append(entity)
-                print(f"Parsed entity {line}")
-                # Add head entity to be skinned if applicable
-                if (entity.has_head()):
-                    head = entity.get_head()
-                    entities.append(head)
-                    print(f"Parsed {head.get_name()} for {line}")
-            except Exception:
-                print(f"Invalid entity {line} - skipping")
-                continue
+        for line in entity_list.read().splitlines():
+            # try:
+            entity = EntityDef(line, entity_archive)
+            entities.append(entity)
+            print(f"Parsed entity {line}")
+            # Add head entity to be skinned if applicable
+            if (entity.has_head()):
+                head = entity.get_head()
+                entities.append(head)
+                print(f"Parsed {head.get_name()} for {line}")
+            # except Exception as e:
+            #     print(f"Invalid entity {line} - skipping")
+            #     continue
 
     # for each entity (and head entity)
+    material_archive = MaterialArchive(argv[3])
+    skin_archive = SkinArchive(argv[3])
     for entity in entities:
         # Find all the materials in the md5mesh file
-        mesh = Md5mesh(entity.get_mesh_path(), argv[6])
-        print(f"Found mesh {entity.get_mesh_path()} for {entity.get_name()}")
-        materials = mesh.get_materials()
-        print(f"Found {len(materials)} materials in {entity.get_mesh_path()}")
+        if entity.is_child():
+            skin = Skin(entity.get_skin_name(), skin_archive)
+            materials = skin.get_source_materials()
+        else:
+            mesh = Md5mesh(entity.get_mesh_path(), argv[6])
+            print(f"Found mesh {entity.get_mesh_path()} for {entity.get_name()}")
+            materials = mesh.get_materials()
+            print(f"Found {len(materials)} materials in {entity.get_mesh_path()}")
         for material in materials:
             # Add fragment to material object
             material.append_material_fragment(argv[2])
