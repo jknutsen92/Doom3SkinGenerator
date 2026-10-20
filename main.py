@@ -67,6 +67,7 @@ if __name__ == "__main__":
     material_archive = MaterialArchive(argv[3])
     skin_archive = SkinArchive(argv[3])
     materials_created = set()                   # Avoid redefining custom materials
+    skins_created = set()                       # Head skins can be repeated
     for entity in entities:
         # Find all the materials in the md5mesh file
         try:
@@ -112,6 +113,10 @@ if __name__ == "__main__":
                 material_mapping[source_material.get_name()] = override_material.get_name()
         # Create new skin, reference existing material with the new material copy
         override_skin = Skin(f"skins/{entity.get_name()}_{argv[6]}", material_mapping)
-        # Serialize skin to output file
-        override_skin.serialize_copy(argv[5])
-        print(f"Serialized {override_skin.get_name()} to {argv[5]}")
+        if override_skin.get_name() not in skins_created:
+            # Serialize skin to output file
+            override_skin.serialize_copy(argv[5])
+            print(f"Serialized {override_skin.get_name()} to {argv[5]}")
+            skins_created.add(override_skin.get_name())
+        else:
+            print(f"Skin {override_skin.get_name()} already created. Skipping serialization")

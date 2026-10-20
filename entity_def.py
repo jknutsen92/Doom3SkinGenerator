@@ -78,10 +78,10 @@ class EntityDef():
     def _find_head(self, entity_def_text: str) -> Optional[HeadEntityDef]:
         head_def_pattern = r"def_head\"\s+\"([^\"]+)"
         if match := re.search(head_def_pattern, entity_def_text):
-            head_model_def = match[1]
+            head_model_def = match.groups()[0]
             print(f"Found head model for {self._name}: {head_model_def}")
             mesh_path = self._archive.search_model_def_files(head_model_def)
-            return HeadEntityDef(head_model_def, mesh_path)
+            return HeadEntityDef(head_model_def, self._archive)
         return None
 
 
@@ -137,19 +137,31 @@ class EntityDef():
             return None
 
 
-class HeadEntityDef():
-    def __init__(self, name, mesh_path: str):
-        self._name = name
-        self._md5mesh_path = mesh_path
+class HeadEntityDef(EntityDef):
+    def __init__(self, model_name: str, archive: EntityArchive):
+        self._archive = archive
+        model_def_text = archive.search_model_def_files(model_name)
+        self._name = model_name
+        self._head = None
+        self._mesh_path = self._find_mesh_path(model_def_text)
+        self._skin = self._find_skin_name(model_def_text)
 
+    
+    def _find_mesh_path(self, model_def_text: str) -> str:
+        mesh_pattern = r"mesh\s+(\S+\.md5mesh)"
+        if match := re.search(mesh_pattern, model_def_text):
+            return match.groups()[0]
+        else:
+            raise MeshMissingError(f"Head model def {self._name} doesn't have a declared mesh")
 
-    def __repr__(self) -> str:
-        return f"EntityDef:{self._name}"
-
-
-    def get_name(self) -> str:
-        return self._name
+    
+    def _find_skin_name(self, model_def_text: str) -> str:
+        skin_pattern = r"skin\s+(\S+)\.skin"
+        if match := re.search(skin_pattern, model_def_text):
+            return match.groups()[0]
+        else:
+            return None
 
 
     def get_mesh_path(self) -> str:
-        return self._md5mesh_path
+        return self._mesh_path
