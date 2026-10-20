@@ -1,12 +1,12 @@
 from pathlib import Path
 from sys import exit, argv
-from re import search
+from copy import deepcopy
 
 from entity_def import EntityDef
 from md5mesh import Md5mesh
-from material import Material
+from material import Material, MaterialFragment
 from skin import Skin
-from game_files import EntityArchive, MaterialArchive, SkinArchive
+from game_files import EntityArchive, MaterialArchive, SkinArchive, MeshMissingError, SkinMissingError
 
 # argv[1]: File containing list of entity names for which to create new materials and skins
 # argv[2]: Path to text file containing the material content to append to the existing material copies
@@ -26,6 +26,11 @@ def is_valid_base_folder(base_path: str) -> bool:
         return False
     return True
 
+def get_file_text(path: str) -> str:
+    with open(path) as file_body:
+        return "\n".join(map(str.strip, file_body.readlines()))
+
+
 if __name__ == "__main__":
     # parse entity names list and material fragment
     try:
@@ -42,14 +47,13 @@ if __name__ == "__main__":
         print(error)
         exit()
 
-    material_fragment = Material.parse_material_fragment(argv[2])
+    material_fragment = MaterialFragment(get_file_text(argv[2]))
 
     with open(argv[1]) as entity_list:
         entity_archive = EntityArchive(argv[3])
         # init entities list
         entities = []
         for line in entity_list.read().splitlines():
-            # try:
             entity = EntityDef(line, entity_archive)
             entities.append(entity)
             print(f"Parsed entity {line}")
@@ -58,34 +62,56 @@ if __name__ == "__main__":
                 head = entity.get_head()
                 entities.append(head)
                 print(f"Parsed {head.get_name()} for {line}")
-            # except Exception as e:
-            #     print(f"Invalid entity {line} - skipping")
-            #     continue
 
     # for each entity (and head entity)
     material_archive = MaterialArchive(argv[3])
     skin_archive = SkinArchive(argv[3])
+    materials_created = set()                   # Avoid redefining custom materials
     for entity in entities:
         # Find all the materials in the md5mesh file
-        if entity.is_child():
-            skin = Skin(entity.get_skin_name(), skin_archive)
-            materials = skin.get_source_materials()
+        try:
+            mesh = Md5mesh(f"{argv[3]}/{entity.get_mesh_path()}", material_archive)
+        except FileNotFoundError:
+            print(f"Mesh file doesn't exist for {entity.get_name()}. Skipping")
+            continue
+        except MeshMissingError:
+            print(f"Mesh not defined in the inheritance hierarchy for {entity.get_name()}")
+            continue
+        print(f"Found mesh {entity.get_mesh_path()} for {entity.get_name()}")
+        materials = mesh.get_materials()
+        print(f"Found {len(materials)} materials in {entity.get_mesh_path()}")
+        material_mapping = {}
+        if entity.has_skin():
+            try:
+                current_skin = Skin(entity.get_skin_name(), None, skin_archive)
+            except SkinMissingError as e:
+                print(e)
+                continue
         else:
-            mesh = Md5mesh(entity.get_mesh_path(), argv[6])
-            print(f"Found mesh {entity.get_mesh_path()} for {entity.get_name()}")
-            materials = mesh.get_materials()
-            print(f"Found {len(materials)} materials in {entity.get_mesh_path()}")
-        for material in materials:
-            # Add fragment to material object
-            material.append_material_fragment(argv[2])
-            print(f"Adding fragment to {material.get_base_name()}")
-            # serialize to new material file (append if necessary)
-            material.serialize_copy(argv[4])
-            print(f"Serialized {material.get_modified_name()} to {argv[4]}")
-
+            current_skin = None
+        for source_material in materials:
+            # If the material is skinned as a basic texture i.e. texture/common/nodraw, texture/common/shadow etc.
+            if current_skin and current_skin.material_overridden_with_common_texture(source_material.get_name()):
+                # Pass the common mapping through into the new skin
+                material_mapping[source_material.get_name()] = current_skin.get_overriden_material(source_material.get_name())
+            else:
+                # Create override material and add new shader fragment code
+                override_material = deepcopy(source_material)
+                # Update material name
+                override_material.set_name(f"{source_material.get_name()}_{argv[6]}")
+                # Add fragment to material object
+                override_material.composite_materials(material_fragment)
+                print(f"Adding fragment to {override_material.get_name()}")
+                if override_material.get_name() not in materials_created:
+                    # serialize to new material file (append if necessary)
+                    override_material.serialize_copy(argv[4], argv[6])
+                    print(f"Serialized {override_material.get_name()} to {argv[4]}")
+                    materials_created.add(override_material.get_name())
+                else:
+                    print(f"Material {override_material.get_name()} already created. Skipping serialization")
+                material_mapping[source_material.get_name()] = override_material.get_name()
         # Create new skin, reference existing material with the new material copy
-        skin = Skin(f"skins/{entity.get_name()}_{argv[6]}", materials)
-
+        override_skin = Skin(f"skins/{entity.get_name()}_{argv[6]}", material_mapping)
         # Serialize skin to output file
-        skin.serialize_copy(argv[5])
-        print(f"Serialized {skin.get_name()} to {argv[5]}")
+        override_skin.serialize_copy(argv[5])
+        print(f"Serialized {override_skin.get_name()} to {argv[5]}")

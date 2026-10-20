@@ -1,3 +1,7 @@
 EntityList.txt
 MatFrag.txt
 .vscode
+*.mtr
+*.skin
+__pycache__
+*.pyc
