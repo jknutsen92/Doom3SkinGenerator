@@ -87,7 +87,7 @@ if __name__ == "__main__":
                 current_skin = Skin(entity.get_skin_name(), None, skin_archive)
             except SkinMissingError as e:
                 print(e)
-                continue
+                current_skin = None
         else:
             current_skin = None
         for source_material in materials:
